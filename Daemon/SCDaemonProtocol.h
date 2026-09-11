@@ -20,6 +20,12 @@ NS_ASSUME_NONNULL_BEGIN
 // XPC method to extend block
 - (void)updateBlockEndDate:(NSDate*)newEndDate authorization:(NSData *)authData reply:(void(^)(NSError* error))reply;
 
+// XPC method to configure daily scheduled blocks
+- (void)configureScheduledBlockWithEnabled:(BOOL)enabled controllingUID:(uid_t)controllingUID blocklist:(NSArray<NSString*>*)blocklist isAllowlist:(BOOL)isAllowlist startHour:(NSInteger)startHour startMinute:(NSInteger)startMinute durationMinutes:(NSInteger)durationMinutes blockSettings:(NSDictionary*)blockSettings authorization:(NSData *)authData reply:(void(^)(NSError* error))reply;
+
+// XPC method to get daily scheduled block configuration
+- (void)getScheduledBlockConfigurationWithReply:(void(^)(NSDictionary* configuration))reply;
+
 // XPC method to get version of the installed daemon
 - (void)getVersionWithReply:(void(^)(NSString * version))reply;
 

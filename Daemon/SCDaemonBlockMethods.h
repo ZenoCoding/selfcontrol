@@ -16,7 +16,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (class, readonly) NSLock* daemonMethodLock;
 
 // Starts a block
-+ (void)startBlockWithControllingUID:(uid_t)controllingUID blocklist:(NSArray<NSString*>*)blocklist isAllowlist:(BOOL)isAllowlist endDate:(NSDate*)endDate blockSettings:(NSDictionary*)blockSettings authorization:(NSData *)authData reply:(void(^)(NSError* error))reply;
++ (void)startBlockWithControllingUID:(uid_t)controllingUID blocklist:(NSArray<NSString*>*)blocklist isAllowlist:(BOOL)isAllowlist endDate:(NSDate*)endDate blockSettings:(NSDictionary*)blockSettings authorization:(nullable NSData *)authData reply:(void(^)(NSError* error))reply;
 
 // Checks whether the block is expired or compromised, and takes action to fix
 + (void)checkupBlock;
@@ -28,6 +28,10 @@ NS_ASSUME_NONNULL_BEGIN
 // updates the block end date for the currently running block
 // (i.e. extends the block)
 + (void)updateBlockEndDate:(NSDate*)newEndDate authorization:(NSData *)authData reply:(void(^)(NSError* error))reply;
+
++ (void)configureScheduledBlockWithEnabled:(BOOL)enabled controllingUID:(uid_t)controllingUID blocklist:(NSArray<NSString*>*)blocklist isAllowlist:(BOOL)isAllowlist startHour:(NSInteger)startHour startMinute:(NSInteger)startMinute durationMinutes:(NSInteger)durationMinutes blockSettings:(NSDictionary*)blockSettings reply:(void(^)(NSError* error))reply;
++ (NSDictionary*)scheduledBlockConfiguration;
++ (void)checkScheduledBlock;
 
 + (void)checkBlockIntegrity;
 

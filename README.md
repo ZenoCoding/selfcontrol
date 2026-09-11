@@ -1,3 +1,17 @@
+# Tycho’s SelfControl fork
+
+Personal fork with daily downtime scheduling, protected schedule disabling, and local Apple Development signing. The original project documentation follows below.
+
+## Build this fork
+
+Install Xcode and CocoaPods, run `pod install`, then `scripts/build-local.sh`. If the command-line tools are selected instead of Xcode, set `DEVELOPER_DIR` to the installed Xcode app’s `Contents/Developer` directory (for example `/Applications/Xcode-beta.app/Contents/Developer`).
+
+The signed build requires an unlocked keychain containing an Apple Development identity for team `RSNC24Q9XR`. Set `SELFCONTROL_SIGN_IDENTITY` to select a particular identity. The app and its privileged helper require matching signatures; an ad-hoc build is insufficient for normal helper installation. The build script uses a macOS 12 deployment target for compatibility with Xcode 27.
+
+Output: `build/DerivedData/Build/Products/Debug/SelfControl.app`.
+
+---
+
 # [SelfControl][website]
 
 <p align="center">

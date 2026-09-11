@@ -183,7 +183,7 @@
         return;
     }
     
-    CFErrorRef cfError;
+    CFErrorRef cfError = NULL;
 
     // in some cases, SMJobBless will fail if we don't first remove the currently running daemon
     // it's not clear why exactly or what the exact cause is, but I can reproduce consistently
@@ -194,6 +194,7 @@
                                  );
     if (cfError) {
         NSLog(@"WARNING: Failed to remove existing selfcontrold daemon with error %@", cfError);
+        CFRelease(cfError);
         cfError = NULL;
     }
 
@@ -346,6 +347,46 @@
                     [SCSentry captureError: error];
                 }
                 reply(error);
+            }];
+        }
+    }];
+}
+
+- (void)configureScheduledBlockWithEnabled:(BOOL)enabled controllingUID:(uid_t)controllingUID blocklist:(NSArray<NSString*>*)blocklist isAllowlist:(BOOL)isAllowlist startHour:(NSInteger)startHour startMinute:(NSInteger)startMinute durationMinutes:(NSInteger)durationMinutes blockSettings:(NSDictionary*)blockSettings reply:(void(^)(NSError* error))reply {
+    [self connectAndExecuteCommandBlock:^(NSError * connectError) {
+        if (connectError != nil) {
+            NSLog(@"Scheduled block update failed with connection error: %@", connectError);
+            [SCSentry captureError: connectError];
+            reply(connectError);
+        } else {
+            [[self.daemonConnection remoteObjectProxyWithErrorHandler:^(NSError * proxyError) {
+                NSLog(@"Scheduled block update command failed with remote object proxy error: %@", proxyError);
+                [SCSentry captureError: proxyError];
+                reply(proxyError);
+            }] configureScheduledBlockWithEnabled: enabled controllingUID: controllingUID blocklist: blocklist isAllowlist: isAllowlist startHour: startHour startMinute: startMinute durationMinutes: durationMinutes blockSettings: blockSettings authorization: self.authorization reply:^(NSError* error) {
+                if (error != nil && ![SCMiscUtilities errorIsAuthCanceled: error]) {
+                    NSLog(@"Scheduled block update failed with error = %@\n", error);
+                    [SCSentry captureError: error];
+                }
+                reply(error);
+            }];
+        }
+    }];
+}
+
+- (void)getScheduledBlockConfiguration:(void(^)(NSDictionary* configuration, NSError* error))reply {
+    [self connectAndExecuteCommandBlock:^(NSError * connectError) {
+        if (connectError != nil) {
+            NSLog(@"Scheduled block configuration fetch failed with connection error: %@", connectError);
+            [SCSentry captureError: connectError];
+            reply(nil, connectError);
+        } else {
+            [[self.daemonConnection remoteObjectProxyWithErrorHandler:^(NSError * proxyError) {
+                NSLog(@"Scheduled block configuration fetch failed with remote object proxy error: %@", proxyError);
+                [SCSentry captureError: proxyError];
+                reply(nil, proxyError);
+            }] getScheduledBlockConfigurationWithReply:^(NSDictionary* configuration) {
+                reply(configuration, nil);
             }];
         }
     }];

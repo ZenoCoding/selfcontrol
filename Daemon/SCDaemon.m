@@ -10,6 +10,9 @@
 #import "SCDaemonXPC.h"
 #import"SCDaemonBlockMethods.h"
 #import "SCFileWatcher.h"
+#import "SCSettings.h"
+#import "SCHelperToolUtilities.h"
+#import "SCBlockUtilities.h"
 
 static NSString* serviceName = @"org.eyebeam.selfcontrold";
 float const INACTIVITY_LIMIT_SECS = 60 * 2; // 2 minutes
@@ -25,6 +28,7 @@ float const INACTIVITY_LIMIT_SECS = 60 * 2; // 2 minutes
 
 @property (nonatomic, strong, readwrite) NSXPCListener* listener;
 @property (strong, readwrite) NSTimer* checkupTimer;
+@property (strong, readwrite) NSTimer* scheduleTimer;
 @property (strong, readwrite) NSTimer* inactivityTimer;
 @property (nonatomic, strong, readwrite) NSDate* lastActivityDate;
 
@@ -46,7 +50,7 @@ float const INACTIVITY_LIMIT_SECS = 60 * 2; // 2 minutes
 - (id) init {
     _listener = [[NSXPCListener alloc] initWithMachServiceName: serviceName];
     _listener.delegate = self;
-    
+
     return self;
 }
 
@@ -63,10 +67,13 @@ float const INACTIVITY_LIMIT_SECS = 60 * 2; // 2 minutes
     if ([SCBlockUtilities anyBlockIsRunning] || [SCBlockUtilities blockRulesFoundOnSystem]) {
         [self startCheckupTimer];
     }
-    
+    if ([[SCSettings sharedSettings] boolForKey: @"ScheduledBlockEnabled"]) {
+        [self startScheduleTimer];
+    }
+
     [self startInactivityTimer];
     [self resetInactivityTimer];
-    
+
     self.hostsFileWatcher = [SCFileWatcher watcherWithFile: @"/etc/hosts" block:^(NSError * _Nonnull error) {
         if ([SCBlockUtilities anyBlockIsRunning]) {
             NSLog(@"INFO: hosts file changed, checking block integrity");
@@ -88,7 +95,7 @@ float const INACTIVITY_LIMIT_SECS = 60 * 2; // 2 minutes
     if (self.checkupTimer != nil) {
         return;
     }
-    
+
     self.checkupTimer = [NSTimer scheduledTimerWithTimeInterval: 1 repeats: YES block:^(NSTimer * _Nonnull timer) {
        [SCDaemonBlockMethods checkupBlock];
     }];
@@ -100,9 +107,38 @@ float const INACTIVITY_LIMIT_SECS = 60 * 2; // 2 minutes
     if (self.checkupTimer == nil) {
         return;
     }
-    
+
     [self.checkupTimer invalidate];
     self.checkupTimer = nil;
+}
+
+
+- (void)startScheduleTimer {
+    if (![NSThread isMainThread]) {
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            [self startScheduleTimer];
+        });
+        return;
+    }
+
+    if (self.scheduleTimer != nil) {
+        return;
+    }
+
+    self.scheduleTimer = [NSTimer scheduledTimerWithTimeInterval: 30 repeats: YES block:^(NSTimer * _Nonnull timer) {
+       [SCDaemonBlockMethods checkScheduledBlock];
+    }];
+
+    [SCDaemonBlockMethods checkScheduledBlock];
+}
+
+- (void)stopScheduleTimer {
+    if (self.scheduleTimer == nil) {
+        return;
+    }
+
+    [self.scheduleTimer invalidate];
+    self.scheduleTimer = nil;
 }
 
 
@@ -118,7 +154,12 @@ float const INACTIVITY_LIMIT_SECS = 60 * 2; // 2 minutes
                 [SCDaemonBlockMethods checkupBlock];
                 return;
             }
-            
+            if ([[SCSettings sharedSettings] boolForKey: @"ScheduledBlockEnabled"]) {
+                [self startScheduleTimer];
+                [SCDaemonBlockMethods checkScheduledBlock];
+                return;
+            }
+
             NSLog(@"Daemon inactive for more than %f seconds, exiting!", INACTIVITY_LIMIT_SECS);
             [SCHelperToolUtilities unloadDaemonJob];
         }
@@ -136,6 +177,10 @@ float const INACTIVITY_LIMIT_SECS = 60 * 2; // 2 minutes
     if (self.inactivityTimer) {
         [self.inactivityTimer invalidate];
         self.inactivityTimer = nil;
+    }
+    if (self.scheduleTimer) {
+        [self.scheduleTimer invalidate];
+        self.scheduleTimer = nil;
     }
     if (self.hostsFileWatcher) {
         [self.hostsFileWatcher stopWatching];
@@ -155,32 +200,32 @@ float const INACTIVITY_LIMIT_SECS = 60 * 2; // 2 minutes
     if (SecCodeCopyGuestWithAttributes(NULL, (__bridge CFDictionaryRef _Nullable)(guestAttributes), kSecCSDefaultFlags, &guest) != errSecSuccess) {
         return NO;
     }
-    
+
     SecRequirementRef isSelfControlApp;
     // versions before 4.0 didn't have hardened code signing, so aren't trustworthy to talk to the daemon
     // (plus the daemon didn't exist before 4.0 so there's really no reason they should want to run it!)
-    SecRequirementCreateWithString(CFSTR("anchor apple generic and (identifier \"org.eyebeam.SelfControl\" or identifier \"org.eyebeam.selfcontrol-cli\") and info [CFBundleVersion] >= \"407\" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = EG6ZYP3AQH)"), kSecCSDefaultFlags, &isSelfControlApp);
+    SecRequirementCreateWithString(CFSTR("anchor apple generic and (identifier \"org.eyebeam.SelfControl\" or identifier \"org.eyebeam.selfcontrol-cli\") and info [CFBundleVersion] >= \"407\" and certificate leaf[subject.OU] = RSNC24Q9XR"), kSecCSDefaultFlags, &isSelfControlApp);
     OSStatus clientValidityStatus = SecCodeCheckValidity(guest, kSecCSDefaultFlags, isSelfControlApp);
-    
+
     CFRelease(guest);
     CFRelease(isSelfControlApp);
-    
+
     if (clientValidityStatus) {
         NSError* error = [NSError errorWithDomain: NSOSStatusErrorDomain code: clientValidityStatus userInfo: nil];
         NSLog(@"Rejecting XPC connection because of invalid client signing. Error was %@", error);
         [SCSentry captureError: error];
         return NO;
     }
-    
+
     SCDaemonXPC* scdXPC = [[SCDaemonXPC alloc] init];
     newConnection.exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(SCDaemonProtocol)];
     newConnection.exportedObject = scdXPC;
 
     [newConnection resume];
-    
+
     NSLog(@"Accepted new connection!");
     [SCSentry addBreadcrumb: @"Daemon accepted new connection" category: @"daemon"];
-    
+
     return YES;
 }
 

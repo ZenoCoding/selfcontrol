@@ -22,6 +22,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)startBlockWithControllingUID:(uid_t)controllingUID blocklist:(NSArray<NSString*>*)blocklist isAllowlist:(BOOL)isAllowlist endDate:(NSDate*)endDate blockSettings:(NSDictionary*)blockSettings reply:(void(^)(NSError* error))reply;
 - (void)updateBlocklist:(NSArray<NSString*>*)newBlocklist reply:(void(^)(NSError* error))reply;
 - (void)updateBlockEndDate:(NSDate*)newEndDate reply:(void(^)(NSError* error))reply;
+- (void)configureScheduledBlockWithEnabled:(BOOL)enabled controllingUID:(uid_t)controllingUID blocklist:(NSArray<NSString*>*)blocklist isAllowlist:(BOOL)isAllowlist startHour:(NSInteger)startHour startMinute:(NSInteger)startMinute durationMinutes:(NSInteger)durationMinutes blockSettings:(NSDictionary*)blockSettings reply:(void(^)(NSError* error))reply;
+- (void)getScheduledBlockConfiguration:(void(^)(NSDictionary* configuration, NSError* error))reply;
 
 @end
 

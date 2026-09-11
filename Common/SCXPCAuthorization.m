@@ -107,11 +107,20 @@ static NSDictionary* kAuthorizationRuleAuthenticateAsAdmin2MinTimeout;
                 @"prompt shown when user is required to authorize to modify their block"
             )
         };
+        NSDictionary* scheduleBlockCommandInfo = @{
+            kCommandKeyAuthRightName    : @"org.eyebeam.SelfControl.scheduleBlock",
+            kCommandKeyAuthRightDefault : kAuthorizationRuleAuthenticateAsAdmin2MinTimeout,
+            kCommandKeyAuthRightDesc    : NSLocalizedString(
+                @"SelfControl needs your username and password to schedule automatic blocks.",
+                @"prompt shown when user is required to authorize scheduled blocks"
+            )
+        };
         
         sCommandInfo = @{
             NSStringFromSelector(@selector(startBlockWithControllingUID:blocklist:isAllowlist:endDate:blockSettings:authorization:reply:)) : startBlockCommandInfo,
             NSStringFromSelector(@selector(updateBlocklist:authorization:reply:)) : modifyBlockCommandInfo,
-            NSStringFromSelector(@selector(updateBlockEndDate:authorization:reply:)) : modifyBlockCommandInfo
+            NSStringFromSelector(@selector(updateBlockEndDate:authorization:reply:)) : modifyBlockCommandInfo,
+            NSStringFromSelector(@selector(configureScheduledBlockWithEnabled:controllingUID:blocklist:isAllowlist:startHour:startMinute:durationMinutes:blockSettings:authorization:reply:)) : scheduleBlockCommandInfo
             #pragma clang diagnostic pop
         };
     });
@@ -159,7 +168,7 @@ static NSDictionary* kAuthorizationRuleAuthenticateAsAdmin2MinTimeout;
         // no current definition, so we add our default one.
         
         blockErr = AuthorizationRightGet([authRightName UTF8String], NULL);
-        if (blockErr == errAuthorizationDenied) {
+        if (blockErr == errAuthorizationSuccess || blockErr == errAuthorizationDenied) {
             NSLog(@"setting auth right default for %@: %@", authRightName, authRightDefault);
             blockErr = AuthorizationRightSet(
                 authRef,                                    // authRef
@@ -171,10 +180,8 @@ static NSDictionary* kAuthorizationRuleAuthenticateAsAdmin2MinTimeout;
             );
             assert(blockErr == errAuthorizationSuccess);
         } else {
-            // A right already exists (err == noErr) or any other error occurs, we
-            // assume that it has been set up in advance by the system administrator or
-            // this is the second time we've run.  Either way, there's nothing more for
-            // us to do.
+            // Any other error means we can't safely update the authorization database.
+            // The command will fail later if the existing right is not usable.
         }
     }];
 }

@@ -13,7 +13,7 @@
 
 - (void)startBlockWithControllingUID:(uid_t)controllingUID blocklist:(NSArray<NSString*>*)blocklist isAllowlist:(BOOL)isAllowlist endDate:(NSDate*)endDate blockSettings:(NSDictionary*)blockSettings authorization:(NSData *)authData reply:(void(^)(NSError* error))reply {
     NSLog(@"XPC method called: startBlockWithControllingUID");
-    
+
     NSError* error = [SCXPCAuthorization checkAuthorization: authData command: _cmd];
     if (error != nil) {
         if (![SCMiscUtilities errorIsAuthCanceled: error]) {
@@ -31,7 +31,7 @@
 
 - (void)updateBlocklist:(NSArray<NSString*>*)newBlocklist authorization:(NSData *)authData reply:(void(^)(NSError* error))reply {
     NSLog(@"XPC method called: updateBlocklist");
-    
+
     NSError* error = [SCXPCAuthorization checkAuthorization: authData command: _cmd];
     if (error != nil) {
         if (![SCMiscUtilities errorIsAuthCanceled: error]) {
@@ -43,13 +43,13 @@
     } else {
         NSLog(@"AUTHORIZATION ACCEPTED for updateBlocklist with authData %@ and command %s", authData, sel_getName(_cmd));
     }
-    
+
     [SCDaemonBlockMethods updateBlocklist: newBlocklist authorization: authData reply: reply];
 }
 
 - (void)updateBlockEndDate:(NSDate*)newEndDate authorization:(NSData *)authData reply:(void(^)(NSError* error))reply {
     NSLog(@"XPC method called: updateBlockEndDate");
-    
+
     NSError* error = [SCXPCAuthorization checkAuthorization: authData command: _cmd];
     if (error != nil) {
         if (![SCMiscUtilities errorIsAuthCanceled: error]) {
@@ -61,8 +61,37 @@
     } else {
         NSLog(@"AUTHORIZATION ACCEPTED for updateBlockENdDate with authData %@ and command %s", authData, sel_getName(_cmd));
     }
-    
+
     [SCDaemonBlockMethods updateBlockEndDate: newEndDate authorization: authData reply: reply];
+}
+
+- (void)configureScheduledBlockWithEnabled:(BOOL)enabled controllingUID:(uid_t)controllingUID blocklist:(NSArray<NSString*>*)blocklist isAllowlist:(BOOL)isAllowlist startHour:(NSInteger)startHour startMinute:(NSInteger)startMinute durationMinutes:(NSInteger)durationMinutes blockSettings:(NSDictionary*)blockSettings authorization:(NSData *)authData reply:(void(^)(NSError* error))reply {
+    NSLog(@"XPC method called: configureScheduledBlockWithEnabled");
+
+    NSError* error = [SCXPCAuthorization checkAuthorization: authData command: _cmd];
+    if (error != nil) {
+        if (![SCMiscUtilities errorIsAuthCanceled: error]) {
+            NSLog(@"ERROR: XPC authorization failed due to error %@", error);
+            [SCSentry captureError: error];
+        }
+        reply(error);
+        return;
+    }
+
+    [SCDaemonBlockMethods configureScheduledBlockWithEnabled: enabled
+                                              controllingUID: controllingUID
+                                                   blocklist: blocklist
+                                                 isAllowlist: isAllowlist
+                                                   startHour: startHour
+                                                 startMinute: startMinute
+                                             durationMinutes: durationMinutes
+                                               blockSettings: blockSettings
+                                                       reply: reply];
+}
+
+- (void)getScheduledBlockConfigurationWithReply:(void(^)(NSDictionary* configuration))reply {
+    NSLog(@"XPC method called: getScheduledBlockConfigurationWithReply");
+    reply([SCDaemonBlockMethods scheduledBlockConfiguration]);
 }
 
 // Part of the HelperToolProtocol.  Returns the version number of the tool.  Note that never

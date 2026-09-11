@@ -97,6 +97,17 @@ NSString* const SETTINGS_FILE_DIR = @"/usr/local/etc/";
 
         @"EnableErrorReporting": @([SCMiscUtilities systemThirdPartyCrashReportingEnabled]),
 
+        // daily scheduled blocks
+        @"ScheduledBlockEnabled": @NO,
+        @"ScheduledBlockStartHour": @9,
+        @"ScheduledBlockStartMinute": @0,
+        @"ScheduledBlockDurationMinutes": @60,
+        @"ScheduledBlocklist": @[],
+        @"ScheduledBlockAsWhitelist": @NO,
+        @"ScheduledBlockSettings": @{},
+        @"ScheduledBlockControllingUID": @(0),
+        @"ScheduledBlockLastStartDate": [NSDate distantPast],
+
         @"SettingsVersionNumber": @0,
         @"LastSettingsUpdate": [NSDate distantPast] // special value that keeps track of when we last updated our settings
     };
@@ -477,7 +488,7 @@ NSString* const SETTINGS_FILE_DIR = @"/usr/local/etc/";
     [dictCopy removeObjectForKey: @"ActiveBlocklist"];
 
     // and serialize dates to string, since Sentry has a hard time with that
-    NSArray<NSString*>* dateKeys = @[@"BlockEndDate", @"LastSettingsUpdate"];
+    NSArray<NSString*>* dateKeys = @[@"BlockEndDate", @"LastSettingsUpdate", @"ScheduledBlockLastStartDate"];
     for (NSString* dateKey in dateKeys) {
         dictCopy[dateKey] = [NSDateFormatter localizedStringFromDate: dictCopy[dateKey]
                                                                  dateStyle: NSDateFormatterShortStyle

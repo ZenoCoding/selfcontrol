@@ -23,9 +23,9 @@
 #import "AppController.h"
 #import "MASPreferencesWindowController.h"
 #import "PreferencesGeneralViewController.h"
+#import "PreferencesScheduleViewController.h"
 #import "PreferencesAdvancedViewController.h"
 #import "SCTimeIntervalFormatter.h"
-#import <LetsMove/PFMoveApplication.h>
 #import "SCSettings.h"
 #import <ServiceManagement/ServiceManagement.h>
 #import "SCXPCClient.h"
@@ -33,9 +33,15 @@
 #import "SCUIUtilities.h"
 #import <TransformerKit/NSValueTransformer+TransformerKit.h>
 
+extern void PFMoveToApplicationsFolderIfNecessary(void);
+extern BOOL PFMoveIsInProgress(void);
+
 @interface AppController () {}
 
 @property (atomic, strong, readwrite) SCXPCClient* xpc;
+@property (nonatomic, strong) NSButton* preferencesBackButton;
+@property (nonatomic, strong) NSTitlebarAccessoryViewController* preferencesBackAccessory;
+@property (nonatomic, weak) NSWindow* preferencesReturnWindow;
 
 @end
 
@@ -298,7 +304,109 @@
     }
     
     // and our interface may need to change to match!
-    [self refreshUserInterface];
+	[self refreshUserInterface];
+}
+
+- (NSImage*)systemSymbolNamed:(NSString*)symbolName fallbackName:(NSString*)fallbackName {
+    if (@available(macOS 11.0, *)) {
+        NSImage* symbol = [NSImage imageWithSystemSymbolName: symbolName accessibilityDescription: nil];
+        if (symbol != nil) {
+            return symbol;
+        }
+    }
+    return [NSImage imageNamed: fallbackName];
+}
+
+- (BOOL)hasVisibleApplicationWindow {
+    for (NSWindow* window in NSApp.windows) {
+        if (window.visible) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+- (void)applyLightAppearance {
+    NSAppearance* lightAppearance = [NSAppearance appearanceNamed: NSAppearanceNameAqua];
+    NSApp.appearance = lightAppearance;
+    for (NSWindow* window in NSApp.windows) {
+        window.appearance = lightAppearance;
+    }
+}
+
+- (void)showInitialWindowNow {
+    if (initialWindow_ == nil) {
+        return;
+    }
+
+    initialWindow_.appearance = [NSAppearance appearanceNamed: NSAppearanceNameAqua];
+    initialWindow_.releasedWhenClosed = NO;
+    initialWindow_.restorable = NO;
+    [initialWindow_ makeKeyAndOrderFront: self];
+    [initialWindow_ orderFrontRegardless];
+    [NSApp activateIgnoringOtherApps: YES];
+}
+
+- (void)showDefaultWindowNow {
+    if ([SCUIUtilities blockIsRunning]) {
+        [self showTimerWindow];
+    } else {
+        [self showInitialWindowNow];
+    }
+}
+
+- (void)returnToMainWindow:(id)sender {
+    if (preferencesWindowController_ != nil) {
+        [preferencesWindowController_.window orderOut: self];
+    }
+
+    if (self.preferencesReturnWindow != nil) {
+        [self.preferencesReturnWindow makeKeyAndOrderFront: self];
+        [self.preferencesReturnWindow orderFrontRegardless];
+        [NSApp activateIgnoringOtherApps: YES];
+        self.preferencesReturnWindow = nil;
+        return;
+    }
+
+    [self showDefaultWindowNow];
+}
+
+- (void)preferencesWindowWillClose:(NSNotification*)notification {
+    if (notification.object == preferencesWindowController_.window) {
+        [self returnToMainWindow: self];
+    }
+}
+
+- (void)closeRestoredPreferencesWindows {
+    for (NSWindow* window in NSApp.windows) {
+        if (window != initialWindow_ && [window.title isEqualToString: NSLocalizedString(@"Preferences", @"Common title for Preferences window")]) {
+            [window close];
+        }
+    }
+}
+
+- (void)installPreferencesBackButton {
+    NSWindow* preferencesWindow = preferencesWindowController_.window;
+    if (self.preferencesBackButton != nil || self.preferencesBackAccessory != nil) {
+        return;
+    }
+
+    NSButton* backButton = [[NSButton alloc] initWithFrame: NSMakeRect(0, 0, 32, 28)];
+    backButton.title = @"";
+    backButton.image = [self systemSymbolNamed: @"chevron.left" fallbackName: NSImageNameGoLeftTemplate];
+    backButton.imagePosition = NSImageOnly;
+    backButton.bezelStyle = NSBezelStyleTexturedRounded;
+    backButton.target = self;
+    backButton.action = @selector(returnToMainWindow:);
+    backButton.toolTip = NSLocalizedString(@"Back", @"Back button tooltip");
+
+    NSTitlebarAccessoryViewController* accessory = [[NSTitlebarAccessoryViewController alloc] init];
+    accessory.view = backButton;
+    accessory.layoutAttribute = NSLayoutAttributeLeft;
+
+    [preferencesWindow addTitlebarAccessoryViewController: accessory];
+    self.preferencesBackButton = backButton;
+    self.preferencesBackAccessory = accessory;
 }
 
 - (void)showTimerWindow {
@@ -308,6 +416,7 @@
 		[[timerWindowController_ window] makeKeyAndOrderFront: self];
 		[[timerWindowController_ window] center];
 	}
+    timerWindowController_.window.appearance = [NSAppearance appearanceNamed: NSAppearanceNameAqua];
 }
 
 - (void)closeTimerWindow {
@@ -319,12 +428,48 @@
     [SCSentry addBreadcrumb: @"Opening preferences window" category: @"app"];
 	if (preferencesWindowController_ == nil) {
 		NSViewController* generalViewController = [[PreferencesGeneralViewController alloc] init];
+		NSViewController* scheduleViewController = [[PreferencesScheduleViewController alloc] init];
 		NSViewController* advancedViewController = [[PreferencesAdvancedViewController alloc] init];
 		NSString* title = NSLocalizedString(@"Preferences", @"Common title for Preferences window");
 
-		preferencesWindowController_ = [[MASPreferencesWindowController alloc] initWithViewControllers: @[generalViewController, advancedViewController] title: title];
+			preferencesWindowController_ = [[MASPreferencesWindowController alloc] initWithViewControllers: @[generalViewController, scheduleViewController, advancedViewController] title: title];
+            preferencesWindowController_.window.restorable = NO;
+            [[NSNotificationCenter defaultCenter] addObserver: self
+                                                     selector: @selector(preferencesWindowWillClose:)
+                                                         name: NSWindowWillCloseNotification
+                                                       object: preferencesWindowController_.window];
 	}
-	[preferencesWindowController_ showWindow: nil];
+    NSWindow* preferencesWindow = preferencesWindowController_.window;
+    preferencesWindow.appearance = [NSAppearance appearanceNamed: NSAppearanceNameAqua];
+    preferencesWindow.titleVisibility = NSWindowTitleVisible;
+    preferencesWindow.restorable = NO;
+    [self installPreferencesBackButton];
+
+    NSWindow* sourceWindow = nil;
+    if (initialWindow_.visible) {
+        sourceWindow = initialWindow_;
+    } else if (timerWindowController_.window.visible) {
+        sourceWindow = timerWindowController_.window;
+    }
+
+    if (sourceWindow != nil) {
+        NSRect preferencesFrame = preferencesWindow.frame;
+        NSRect sourceFrame = sourceWindow.frame;
+        preferencesFrame.origin.x = NSMidX(sourceFrame) - preferencesFrame.size.width / 2.0;
+        preferencesFrame.origin.y = NSMidY(sourceFrame) - preferencesFrame.size.height / 2.0;
+        [preferencesWindow setFrame: preferencesFrame display: NO];
+        self.preferencesReturnWindow = sourceWindow;
+        [sourceWindow orderOut: self];
+    }
+
+    [preferencesWindowController_ showWindow: nil];
+    [preferencesWindow makeKeyAndOrderFront: self];
+    [NSApp activateIgnoringOtherApps: YES];
+}
+
+- (IBAction)openSchedulePreferences:(id)sender {
+    [self openPreferences: sender];
+    [(MASPreferencesWindowController*)preferencesWindowController_ selectControllerAtIndex: 1];
 }
 
 - (IBAction)showGetStartedWindow:(id)sender {
@@ -346,6 +491,7 @@
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
 	[NSApplication sharedApplication].delegate = self;
+    [self applyLightAppearance];
     
     [SCSentry startSentry: @"org.eyebeam.SelfControl"];
 
@@ -405,6 +551,8 @@
 											   object: nil];
 
 	[initialWindow_ center];
+    initialWindow_.appearance = [NSAppearance appearanceNamed: NSAppearanceNameAqua];
+    initialWindow_.restorable = NO;
 
 	// We'll set blockIsOn to whatever is NOT right, so that in refreshUserInterface
 	// it'll fix it and properly refresh the user interface.
@@ -418,6 +566,10 @@
     blocklistTeaserLabel_.stringValue = [SCUIUtilities blockTeaserStringWithMaxLength: 60];
 
 	[self refreshUserInterface];
+    [self closeRestoredPreferencesWindows];
+    if (![self hasVisibleApplicationWindow]) {
+        [self showInitialWindowNow];
+    }
     
     NSOperatingSystemVersion minRequiredVersion = (NSOperatingSystemVersion){10,10,0}; // Yosemite
     NSString* minRequiredVersionString = @"10.10 (Yosemite)";
@@ -430,6 +582,13 @@
 		[unsupportedVersionAlert addButtonWithTitle: NSLocalizedString(@"OK", nil)];
 		[unsupportedVersionAlert runModal];
 	}
+}
+
+- (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag {
+    if (!flag) {
+        [self showDefaultWindowNow];
+    }
+    return YES;
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
